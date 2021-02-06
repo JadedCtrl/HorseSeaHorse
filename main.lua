@@ -116,7 +116,11 @@ end
 function frontMenu_init()
 	frontMenu = Menu:new(100, 100, 30, 50, 3, {
 		{love.graphics.newText(a_ttf, "Local"),
-			function () game_load() end},
+			function () 
+				local lobbiest1 = LocalLobbiest:new(nil, KEYMAPS[1])
+				local lobbiest2 = LocalLobbiest:new(nil, KEYMAPS[2])
+				game_load({lobbiest1, lobbiest2})
+			end},
 		{love.graphics.newText(a_ttf, "Quit"),
 			function () love.event.quit(0) end }})
 	mapMenu = nil
@@ -197,7 +201,7 @@ end
 
 -- GAME STATE
 ----------------------------------------
-function game_load()
+function game_load(lobbiests)
 	mode = game
 	world:destroy()
 	world = wind.newWorld(0, 0, true)
@@ -205,9 +209,18 @@ function game_load()
 	world:addCollisionClass('Shield')
 	world:addCollisionClass('Sword')
 
+	remotePlayers = {}
 	localPlayers = {}
-	localPlayers[1] = LocalPlayer:new(300, 300, keymaps[1])
-	localPlayers[2] = LocalPlayer:new(350, 350, keymaps[2])
+	remotePlayersN = 0
+	localPlayersN = 0
+
+	for k,lobbiest in pairs(lobbiests) do
+		if (lobbiest.class.name == "LocalLobbiest") then
+			local i = localPlayersN + 1
+			localPlayers[i] = LocalPlayer:new(0 + i * 50, 0 + i * 50, KEYMAPS[i])
+			localPlayersN = i
+		end
+	end
 
 	localFighters = localPlayers
 
@@ -216,11 +229,6 @@ function game_load()
 	camera:fade(.2, {0,0,0,0})
 	camera:setFollowLerp(0.1)
 	camera:setFollowStyle('TOPDOWN')
-	camera.scale = 2
-
---	bgm:stop()
---	bgm = love.audio.newSource("art/music/game.ogg", "static")
---	bgm:play()
 end
 
 
@@ -396,7 +404,7 @@ end
 LocalPlayer = class("LocalPlayer", Fighter)
 
 function LocalPlayer:initialize(x, y, keymap, character, swordType, swordSide)
-	self.keymap = keymap or keymaps[1]
+	self.keymap = keymap or KEYMAPS[1]
 	Fighter.initialize(self, x, y, character, swordType, swordSide)
 end
 
@@ -543,6 +551,30 @@ function Menu:keyreleased(key)
 end
 
 
+-- LOBBY superclass for pre-matches
+----------------------------------------
+Lobby = class("Lobby")
+
+-- LOBBIEST	proposed fighter
+----------------------------------------
+Lobbiest = class("Lobbiest")
+
+function Lobbiest:initialize(name)
+	self.name = name or NAMES[math.random(1, table.maxn(NAMES))]
+	self.character = CHARACTERS[math.random(1, table.maxn(CHARACTERS))]
+end
+
+
+-- LOCALLOBBIEST
+----------------------------------------
+LocalLobbiest = class("LocalLobbiest", Lobbiest)
+
+function LocalLobbiest:initialize(name, keymap)
+	Lobbiest.initialize(self, name)
+	self.keymap = keymap or KEYMAPS[math.random(1, table.maxn(KEYMAPS))]
+end
+
+
 -- UTIL
 --------------------------------------------------------------------------------
 function split(inputString, seperator)
@@ -558,12 +590,16 @@ end
 --------------------------------------------------------------------------------
 -- CHARACTERS
 ------------------------------------------
-characters = {}
-characters["jellyfish-lion.png"] = {"Lion Jellyfish", "hey, hey. you know whats shocking?", "rapidpunches", "CC-BY-SA 4.0"}
-characters["jellyfish-n.png"] = {"Jellyfish N", "(electricity)", "rapidpunches", "CC-BY-SA 4.0"}
+CHARACTERS = {}
+CHARACTERS["jellyfish-lion.png"] = {"Lion Jellyfish", "hey, hey. you know whats shocking?", "rapidpunches", "CC-BY-SA 4.0"}
+CHARACTERS["jellyfish-n.png"] = {"Jellyfish N", "(electricity)", "rapidpunches", "CC-BY-SA 4.0"}
+
+-- DEFAULT NAMES
+------------------------------------------
+NAMES = {"Ignucius", "Penguin", "Tux", "Puffy", "Doktoro", "Espero", "<3", "</3"}
 
 -- LOCAL KEYMAPS
 ------------------------------------------
-keymaps = {}
-keymaps[1] = {["accel"] = "w", ["left"] = "a", ["right"] = "d", ["flip"] = "s"}
-keymaps[2] = {["accel"] = "up", ["left"] = "left", ["right"] = "right", ["flip"] = "down"}
+KEYMAPS = {}
+KEYMAPS[1] = {["accel"] = "w", ["left"] = "a", ["right"] = "d", ["flip"] = "s"}
+KEYMAPS[2] = {["accel"] = "up", ["left"] = "left", ["right"] = "right", ["flip"] = "down"}
