@@ -3,7 +3,6 @@ class	= require "lib/middleclass"
 wind	= require "lib/windfield"
 stalker	= require "lib/STALKER-X"
 
-mainmenu = 0; game = 1; gameover = 2; pause = 3; youwin = 4
 startSwordLength = 40; startKnifeLength = 10
 
 world = wind.newWorld(0, 0, true)
@@ -26,24 +25,14 @@ end
 
 
 function love.update(dt)
-	if(mode == mainmenu) then		mainmenu_update(dt)
-	elseif(mode == game) then		game_update(dt)
-	elseif(mode == gameover) then	gameover_update(dt)
-	elseif(mode == youwin) then		youwin_update(dt)
-	elseif(mode == pause) then		pause_update(dt)
-	end
+	updateFunction(dt)
 	camera:update(dt)
 end
 
 
 function love.draw()
 	camera:attach()
-	if(mode == mainmenu)		then mainmenu_draw()
-	elseif(mode == game)		then game_draw()
-	elseif(mode == gameover)	then gameover_draw()
-	elseif(mode == youwin)		then youwin_draw()
-	elseif(mode == pause)		then pause_draw()
-	end
+	drawFunction()
 	camera:detach()
 	camera:draw()
 end
@@ -55,40 +44,25 @@ end
 
 
 function love.keypressed(key)
-	if(mode == mainmenu) then		mainmenu_keypressed(key)
-	elseif(mode == game) then		game_keypressed(key)
-	elseif(mode == gameover) then	gameover_keypressed(key)
-	elseif(mode == youwin) then		youwin_keypressed(key)
-	elseif(mode == pause) then		pause_keypressed(key)
-	end
+	keypressedFunction(key)
 end
 
 
 function love.keyreleased (key)
-	if(mode == mainmenu) then		mainmenu_keyreleased(key)
-	elseif(mode == game) then		game_keyreleased(key)
-	elseif(mode == gameover) then	gameover_keyreleased(key)
-	elseif(mode == youwin) then		youwin_keyreleased(key)
-	elseif(mode == pause) then		pause_keyreleased(key)
-	end
+	keyreleasedFunction(key)
 end
 
 
 -- MENU STATE
 ----------------------------------------
 function mainmenu_load ()
-	mode = mainmenu
-	selection = 1
-	if(bgm) then
-		bgm:stop()
-	end
---	bgm = love.audio.newSource("art/music/default.mp3", "static")
---	bgm:play()
---	bgm:setLooping(true)
---	bgm:setVolume(1.5)
-	frontMenu = nil
+	updateFunction = mainmenu_update
+	drawFunction = mainmenu_draw
+	keypressedFunction = mainmenu_keypressed
+	keyreleasedFunction = mainmenu_keyreleased
 
-	frontMenu_init()
+	selection = 1
+	frontMenu = makeMainMenu()
 
 	camera = stalker()
 end
@@ -113,96 +87,27 @@ function mainmenu_keyreleased(key)
 end
 
 
-function frontMenu_init()
-	frontMenu = Menu:new(100, 100, 30, 50, 3, {
+function makeMainMenu()
+	return Menu:new(100, 100, 30, 50, 3, {
 		{love.graphics.newText(a_ttf, "Local"),
-			function () 
+			function ()
 				local lobbiest1 = LocalLobbiest:new(nil, KEYMAPS[1])
 				local lobbiest2 = LocalLobbiest:new(nil, KEYMAPS[2])
 				game_load({lobbiest1, lobbiest2})
 			end},
 		{love.graphics.newText(a_ttf, "Quit"),
 			function () love.event.quit(0) end }})
-	mapMenu = nil
-end
-
-
--- PAUSE STATE
-----------------------------------------
-function pause_load()
-	if(bgm) then
-		bgm:stop()
-	end
-	mode = pause
-end
-
-
-function pause_update(dt)
-end
-
-
-function pause_draw ()
-	game_draw()
-	camera:detach()
-	love.graphics.draw(love.graphics.newText(r_ttf,
-		"paused\n[enter to continue]\n[escape to exit]"), 200, 200, 0, 3, 3)
-	camera:attach()
-end
-
-
-function pause_keypressed(key)
-	if (key == "return") then
-		if(bgm) then
-			bgm:play()
-		end
-		mode = game
-	elseif (key == "escape") then
-		mainmenu_load()
-	end
-end
-
-
-function pause_keyreleased(key)
-end
-
-
--- GAMEOVER STATE
-----------------------------------------
-function gameover_load ()
-	mode = gameover
-end
-
-
-function gameover_update(dt)
-end
-
-
-function gameover_draw ()
-	game_draw()
-	camera:detach()
-	love.graphics.draw(love.graphics.newText(r_ttf,
-		"nice try!\n[enter to restart]\n[escape to exit]"), 200, 200, 0, 3, 3)
-	camera:attach()
-end
-
-
-function gameover_keypressed(key)
-	if (key == "return" or key == "space") then
-		camera:fade(.2, {0,0,0,1}, function() game_load() end)
-	elseif (key == "escape") then
-		mainmenu_load()
-	end
-end
-
-
-function gameover_keyreleased(key)
 end
 
 
 -- GAME STATE
 ----------------------------------------
 function game_load(lobbiests)
-	mode = game
+	updateFunction = game_update
+	drawFunction = game_draw
+	keypressedFunction = game_keypressed
+	keyreleasedFunction = game_keyreleased
+
 	world:destroy()
 	world = wind.newWorld(0, 0, true)
 	world:addCollisionClass('Fighter')
