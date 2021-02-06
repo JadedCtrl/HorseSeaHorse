@@ -4,8 +4,9 @@ wind	= require "lib/windfield"
 stalker	= require "lib/STALKER-X"
 
 mainmenu = 0; game = 1; gameover = 2; pause = 3; youwin = 4
+swordLength = 40; knifeLength = 10
 
-world = wind.newWorld(0, 40, true)
+world = wind.newWorld(0, 0, true)
 
 -- GAME STATES
 --------------------------------------------------------------------------------
@@ -14,14 +15,13 @@ world = wind.newWorld(0, 40, true)
 function love.load ()
 	math.randomseed(os.time())
 
-	dieParticle = nil
 	love.graphics.setDefaultFilter("nearest", "nearest")
 	a_ttf = love.graphics.newFont("art/font/alagard.ttf", nil, "none")
 	r_ttf = love.graphics.newFont("art/font/romulus.ttf", nil, "none")
 
 	camera = stalker()
 
-	game_load()
+	mainmenu_load()
 end
 
 
@@ -91,102 +91,35 @@ function mainmenu_load ()
 	frontMenu_init()
 
 	camera = stalker()
-	map = Map:new("maps/sys/menu.lua")
 end
 
 
 function mainmenu_update(dt)
-	if not (mapMenu == nil) then return; end
-
-	world:update(dt)
-	player:update(dt)
-	map:update(dt)
-
-	-- make player monkey move randomly
-	local num = math.random(100)
-	local dirs = player.directionals
-	if (num == 1) then
-		dirs['left'] = 1
-		dirs['right'] = 0
-	elseif (num == 2) then
-		dirs['right'] = 1
-		dirs['left'] = 0
-	elseif (num == 3) then
-		dirs['up'] = 1
-	end
 end
 
 
 function mainmenu_draw ()
-	if (mapMenu == nil) then
-		map:draw()
-		player:draw()
-		frontMenu:draw()
-	else
-		mapMenu:draw()
-	end
+	frontMenu:draw()
 end
 
 
 function mainmenu_keypressed(key)
-	if (mapMenu == nil) then
-		frontMenu:keypressed(key)
-	else
-		mapMenu:keypressed(key)
-	end
+	frontMenu:keypressed(key)
 end
 
 
 function mainmenu_keyreleased(key)
-	if (mapMenu == nil) then
-		frontMenu:keyreleased(key)
-	else
-		mapMenu:keyreleased(key)
-	end
+	frontMenu:keyreleased(key)
 end
 
 
 function frontMenu_init()
 	frontMenu = Menu:new(100, 100, 30, 50, 3, {
-		{love.graphics.newText(a_ttf, ""),
-			function () mapMenu_init() end},
---				camera:fade(.2, {0,0,0,1}, function() mapMenu_init() end)
---				2, {0,0,0,1}, function() mapMenu_init() end)
---			end},
+		{love.graphics.newText(a_ttf, "Local"),
+			function () game_load() end},
 		{love.graphics.newText(a_ttf, "Quit"),
 			function () love.event.quit(0) end }})
 	mapMenu = nil
-end
-
-
-function mapMenu_init(directory)
-	directory = directory or "maps"
-	local menuEntries = {[1] = {love.graphics.newText(a_ttf, "../"),
-		function () mainmenu_load() end}}
---			if (directory == "maps") then mainmenu_load()
-
-	local indice = 2
-	local files = love.filesystem.getDirectoryItems(directory)
-
-	for k,file in pairs(files) do
-		file = directory .. "/" .. file
-		local filetype = love.filesystem.getInfo(file).type
-		local fileSplit = split(file, ".")
-		local fileExt = fileSplit[2] or ""
-		
-		if (filetype == "directory") then
-			menuEntries[indice] = {love.graphics.newText(a_ttf, file .. "/"),
-					function() mapMenu_init(file) end}
-			indice = indice + 1
-		elseif (filetype == "file" and fileExt == "lua") then
-			menuEntries[indice] = {love.graphics.newText(a_ttf, fileSplit[1]),
-					function() game_load(file) end}
-			indice = indice + 1
-		end
-	end
-
-	mapMenu = Menu:new(100, 100, 30, 50, 3, menuEntries)
-	frontMenu = nil
 end
 
 
@@ -264,19 +197,20 @@ end
 
 -- GAME STATE
 ----------------------------------------
-function game_load(mapfile)
+function game_load()
 	mode = game
 	world:destroy()
-	world = wind.newWorld(0, 400, true)
+	world = wind.newWorld(0, 0, true)
 	world:addCollisionClass('Fighter')
+	world:addCollisionClass('Shield')
+	world:addCollisionClass('Sword')
 
---	mapfile = mapfile or map.filepath
---	map = Map:new(mapfile)
-
-	player = Fighter:new(100, 100)
+	player = Fighter:new(300, 300)
+	punching_bag = Fighter:new(350, 350)
 	camera:fade(.2, {0,0,0,0})
 	camera:setFollowLerp(0.1)
-	camera:setFollowStyle('PLATFORMER')
+	camera:setFollowStyle('TOPDOWN')
+	camera.scale = 2
 
 --	bgm:stop()
 --	bgm = love.audio.newSource("art/music/game.ogg", "static")
@@ -287,15 +221,13 @@ end
 function game_update(dt)
 	world:update(dt)
 	player:update(dt)
---	map:update(dt)
 
 	local x, y = player.body:getPosition()
-	camera:follow(x, y)
+--	camera:follow(x, y)
 end
 
 
 function game_draw ()
---	map:draw()
 	world:draw()
 	player:draw()
 end
@@ -315,6 +247,9 @@ function game_keypressed(key)
 	elseif (key == "up" or key == "w") then
 		dir['up'] = 1
 		if (dir['down'] == 1) then dir['down'] = 2; end
+	elseif (key == "down" or key == "s") then
+		dir['down'] = 1
+		if (dir['up'] == 1) then dir['up'] = 2; end
 
 	elseif (key == "=" and camera.scale < 10) then
 		camera.scale = camera.scale + .5
@@ -333,10 +268,8 @@ function game_keyreleased (key)
 
 	if (key == "right" or key == "d") then
 		dir['right'] = 0
-		player.body:setLinearVelocity(dx - 150, dy)
 	elseif (key == "left" or key == "a") then
 		dir['left'] = 0
-		player.body:setLinearVelocity(dx + 150, dy)
 	elseif (key == "up" or key == "w") then
 		dir['up'] = 0
 	elseif (key == "down") then
@@ -345,30 +278,64 @@ function game_keyreleased (key)
 end
 
 
-
 -- CLASSES
 --------------------------------------------------------------------------------
--- MONK		player class
+-- Fighter		player class
 ----------------------------------------
 Fighter = class('Fighter')
 
-function Fighter:initialize(x, y)
+function Fighter:initialize(x, y, character)
 	self.directionals = {}
-
---	self.sprite = love.graphics.newImage("art/sprites/monk-jump.png")
+	if (character == nil) then self.character = "jellyfish-lion.png"; end
+	self.sprite = love.graphics.newImage("art/sprites/" .. self.character)
 		
 	self.body = world:newRectangleCollider(x, y, 16, 16);
 	self.body:setCollisionClass('Fighter')
 	self.body:setObject(self)
+	self.body:setAngularDamping(2)
+	self.body:setLinearDamping(.5)
+	self.body:setPostSolve(self.makePostSolve())
+	self.swordType = 'normal'
+
+	self.shield = world:newRectangleCollider(x, y - 16, 16, 5);
+	self.shield:setCollisionClass('Shield')
+	self.shield:setObject(self)
+
+	if (self.swordType == 'normal') then
+		self.sword = world:newRectangleCollider(x - 8, y - 16, 3, swordLength);
+	else
+		self.sword = world:newRectangleCollider(x - 8, y - 16, 3, knifeLength);
+	end
+	self.sword:setCollisionClass('Sword')
+	self.sword:setObject(self)
+	self.sword:setPostSolve(self.makeSwordPostSolve())
+end
+
+
+function Fighter:makePostSolve()
+	return function(col1, col2, contact)
+		if (col1.collision_class == "Fighter"
+			and col2.collision_class == "Sword")
+		then
+			print("THEY DEEED, dude")
+		end
+	end
+end
+
+
+function Fighter:makeSwordPostSolve()
+	return function(col1, col2, contact)
+		if (col1.collision_class == "Sword"
+			and col2.collision_class == "Shield")
+		then
+			print("SWORD CLASH!!!!")
+		end
+	end
 end
 
 
 function Fighter:update(dt)
 	local dir = self.directionals
-
-	if (self.following == true) then self:follow()
-	else self:idle()
-	end
 
 	self:movement()
 
@@ -378,41 +345,50 @@ end
 
 
 function Fighter:draw ()
---	local x,y = self.body:getWorldPoints(monk.shape:getPoints())
+	local x,y = self.body:getWorldPoints(self.body.shape:getPoints())
 
---	love.graphics.draw(self.sprite, x, y, monk.body:getAngle(), 1, 1)
+	love.graphics.draw(self.sprite, x, y, self.body:getAngle(), 1, 1)
 --	end
 end
 
 
 function Fighter:movement ()
-	local dx, dy = self.body:getLinearVelocity()
-	local dir = self.directionals
-	local newVel = 250
-
-	if not (self.onGround == downwall) then
-		newVel = newVel - 50
-	end
-
-	if (dir['left'] == 1) then
-		self.body:setLinearVelocity(-newVel, dy);
-	elseif (dir['right'] == 1) then
-		self.body:setLinearVelocity(newVel, dy);
-	end
-
-	if (dir['up'] == 1 and onGround == downwall) then
-		self.body:setLinearVelocity(dx, -newVel);
-	elseif (dir['up'] == 1 and onGround == leftwall) then
-		self.body:setLinearVelocity(newVel, -newVel - 30);
-	elseif (dir['up'] == 1 and onGround == rightwall) then
-		self.body:setLinearVelocity(-newVel, -newVel - 30);
-	end
+	self:localMovement()
 end
 
--- Fighter should jitter when inactive, every once in a while
-function Fighter:idle ()
---	if (self.onGround[i] == downwall and math.random(20) == 5) then
---	end
+
+function Fighter:localMovement ()
+	local x, y = self.body:getPosition()
+	local dx, dy = self.body:getLinearVelocity()
+	local dir = self.directionals
+	local angle = self.body:getAngle()
+
+	if (dir['left'] == 1) then
+		self.body:applyAngularImpulse(-.5, 1)
+	elseif (dir['right'] == 1) then
+		self.body:applyAngularImpulse(.5, 1)
+	end
+
+	if (dir['up'] == 1) then
+   		self.body:applyLinearImpulse(math.sin(angle) * 0.5, math.cos(angle) * -0.5)
+	elseif (dir['down'] == 1) then
+		self.body:setAngle(angle - (math.pi * .70))
+		self.body:applyAngularImpulse(-45, 1)
+		dir['down'] = 0
+	end
+
+	self.shield:setAngle(angle)
+	self.shield:setPosition(x - (math.sin(angle) * 16), y + (math.cos(angle) * 16))
+
+	if (self.swordType == 'normal') then
+		local offset = swordLength - 5
+		self.sword:setAngle(angle)
+		self.sword:setPosition(x + (math.sin(angle) * offset), y - (math.cos(angle) * offset))
+	elseif (self.swordType == 'knife') then
+		local offset = knifeLength * 2
+		self.sword:setAngle(angle)
+		self.sword:setPosition(x + (math.sin(angle) * 4.5 * offset), y - (math.cos(angle) * 1.5 * offset))
+	end
 end
 
 
@@ -489,7 +465,8 @@ function Menu:keyreleased(key)
 end
 
 
-
+-- UTIL
+--------------------------------------------------------------------------------
 function split(inputString, seperator)
         local newString = {}
         for stringBit in string.gmatch(inputString, "([^"..seperator.."]+)") do
@@ -497,3 +474,11 @@ function split(inputString, seperator)
         end
         return newString
 end
+
+
+-- MISC DATA
+--------------------------------------------------------------------------------
+characters = {}
+characters["jellyfish-lion.png"] = {"Lion Jellyfish", "hey, hey. you know whats shocking?", "rapidpunches", "CC-BY-SA 4.0"}
+characters["jellyfish-n.png"] = {"Jellyfish N", "(electricity)", "rapidpunches", "CC-BY-SA 4.0"}
+

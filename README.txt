@@ -1,6 +1,6 @@
 HORSEHORSE
 ================================================================================
-HorseHorse is an tank-control dual-ish game, where valiant non-horses are pitted
+HorseHorse is an tank-control duel-ish game, where valiant non-horses are pitted
 against one another.
 Made for Librejam 2020-02, with the theme "SUBNAUTICAL."
 
