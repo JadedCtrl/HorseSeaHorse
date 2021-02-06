@@ -5,7 +5,6 @@ stalker	= require "lib/STALKER-X"
 
 startSwordLength = 40; startKnifeLength = 10
 
-world = wind.newWorld(0, 0, true)
 
 -- GAME STATES
 --------------------------------------------------------------------------------
@@ -53,37 +52,17 @@ function love.keyreleased (key)
 end
 
 
--- MENU STATE
+-- MAIN-MENU
 ----------------------------------------
 function mainmenu_load ()
-	updateFunction = mainmenu_update
-	drawFunction = mainmenu_draw
-	keypressedFunction = mainmenu_keypressed
-	keyreleasedFunction = mainmenu_keyreleased
+	mainMenu = makeMainMenu()
 
-	selection = 1
-	frontMenu = makeMainMenu()
+	updateFunction		= function (dt)	mainMenu:update(dt) end
+	drawFunction		= function ()	mainMenu:draw() end
+	keypressedFunction	= function(key)	mainMenu:keypressed(key) end
+	keyreleasedFunction	= function(key)	mainMenu:keyreleased(key) end
 
 	camera = stalker()
-end
-
-
-function mainmenu_update(dt)
-end
-
-
-function mainmenu_draw ()
-	frontMenu:draw()
-end
-
-
-function mainmenu_keypressed(key)
-	frontMenu:keypressed(key)
-end
-
-
-function mainmenu_keyreleased(key)
-	frontMenu:keyreleased(key)
 end
 
 
@@ -100,86 +79,17 @@ function makeMainMenu()
 end
 
 
--- GAME STATE
+-- IN-GAME
 ----------------------------------------
+Game = class("Game")
+
 function game_load(lobbiests)
-	updateFunction = game_update
-	drawFunction = game_draw
-	keypressedFunction = game_keypressed
-	keyreleasedFunction = game_keyreleased
+	game = Game:new(lobbiests)
 
-	world:destroy()
-	world = wind.newWorld(0, 0, true)
-	world:addCollisionClass('Fighter')
-	world:addCollisionClass('Shield')
-	world:addCollisionClass('Sword')
-
-	remotePlayers = {}
-	localPlayers = {}
-	remotePlayersN = 0
-	localPlayersN = 0
-
-	for k,lobbiest in pairs(lobbiests) do
-		if (lobbiest.class.name == "LocalLobbiest") then
-			local i = localPlayersN + 1
-			localPlayers[i] = LocalPlayer:new(0 + i * 50, 0 + i * 50, KEYMAPS[i])
-			localPlayersN = i
-		end
-	end
-
-	localFighters = localPlayers
-
-	fighters = localFighters
-
-	camera:fade(.2, {0,0,0,0})
-	camera:setFollowLerp(0.1)
-	camera:setFollowStyle('TOPDOWN')
-end
-
-
-function game_update(dt)
-	world:update(dt)
-
-	for i, fighter in pairs(fighters) do
-		fighter:update(dt)
-	end
---	local x, y = player.body:getPosition()
---	camera:follow(x, y)
-end
-
-
-function game_draw ()
-	world:draw()
-	for i, fighter in pairs(fighters) do
-		fighter:draw()
-	end
-end
-
-
-function game_keypressed(key)
-	local dir = localFighters[1].directionals
-
-	-- if a player presses the left key, then holds the right key, they should
-	-- go right until they let go, then they should go left.
-	if (key == "=" and camera.scale < 10) then
-		camera.scale = camera.scale + .5
-	elseif (key == "-" and camera.scale > .5) then
-		camera.scale = camera.scale - .5
-
-	elseif (key == "escape") then
-		pause_load()
-	else
-		for i, player in pairs(localPlayers) do
-			player:keypressed(key)
-		end
-	end
-end
-
-
-function game_keyreleased (key)
-	for i, player in pairs(localPlayers) do
-		player:keyreleased(key)
-	end
+	updateFunction		= function (dt)	game:update(dt) end
+	drawFunction		= function ()	game:draw() end
+	keypressedFunction	= function(key)	game:keypressed(key) end
+	keyreleasedFunction	= function(key)	game:keyreleased(key) end
 end
 
 
@@ -189,7 +99,8 @@ end
 ----------------------------------------
 Fighter = class('Fighter')
 
-function Fighter:initialize(x, y, character, swordType, swordSide)
+function Fighter:initialize(game, x, y, character, swordType, swordSide)
+	self.game = game
 	self.swordType = swordType or 'normal'
 	self.swordSide = swordSide or 'top'
 	self.character = character or "jellyfish-lion.png"
@@ -228,7 +139,7 @@ end
 
 
 function Fighter:initBody(x, y)
-	self.body = world:newRectangleCollider(x, y, 16, 16);
+	self.body = self.game.world:newRectangleCollider(x, y, 16, 16);
 	self.body:setCollisionClass('Fighter')
 	self.body:setObject(self)
 	self.body:setAngularDamping(2)
@@ -238,7 +149,7 @@ end
 
 
 function Fighter:initShield()
-	self.shield = world:newRectangleCollider(0, 0, 20, 5);
+	self.shield = self.game.world:newRectangleCollider(0, 0, 20, 5);
 	self.shield:setCollisionClass('Shield')
 	self.shield:setObject(self)
 end
@@ -248,9 +159,9 @@ function Fighter:initSword()
 	self.swordLength = startSwordLength
 
 	if (self.swordType == 'normal') then
-		self.sword = world:newRectangleCollider(0, 0, 3, self.swordLength);
+		self.sword = self.game.world:newRectangleCollider(0, 0, 3, self.swordLength);
 	else
-		self.sword = world:newRectangleCollider(0, 0, 3, startKnifeLength);
+		self.sword = self.game.world:newRectangleCollider(0, 0, 3, startKnifeLength);
 	end
 	self.sword:setCollisionClass('Sword')
 	self.sword:setObject(self)
@@ -308,9 +219,9 @@ end
 ----------------------------------------
 LocalPlayer = class("LocalPlayer", Fighter)
 
-function LocalPlayer:initialize(x, y, keymap, character, swordType, swordSide)
+function LocalPlayer:initialize(game, x, y, keymap, character, swordType, swordSide)
 	self.keymap = keymap or KEYMAPS[1]
-	Fighter.initialize(self, x, y, character, swordType, swordSide)
+	Fighter.initialize(self, game, x, y, character, swordType, swordSide)
 end
 
 
@@ -383,6 +294,110 @@ function LocalBot:initialize(x, y, character, swordType, swordSide)
 end
 
 
+
+
+-- GAME superclass for matches
+----------------------------------------
+function Game:initialize(lobbiests)
+	self.world = wind.newWorld(0, 0, true)
+	self.world:addCollisionClass('Fighter')
+	self.world:addCollisionClass('Shield')
+	self.world:addCollisionClass('Sword')
+
+	self.remotePlayers = {}
+	self.localPlayers = {}
+	self.remotePlayersN = 0
+	self.localPlayersN = 0
+
+	for k,lobbiest in pairs(lobbiests) do
+		if (lobbiest.class.name == "LocalLobbiest") then
+			local i = self.localPlayersN + 1
+			self.localPlayers[i] = LocalPlayer:new(self, 0 + i * 50, 0 + i * 50, KEYMAPS[i])
+			self.localPlayersN = i
+		end
+	end
+
+	self.localFighters = self.localPlayers
+
+	self.fighters = self.localFighters
+
+	camera:fade(.2, {0,0,0,0})
+	camera:setFollowLerp(0.1)
+	camera:setFollowStyle('TOPDOWN')
+end
+
+
+function Game:update(dt)
+	self.world:update(dt)
+
+	for i, fighter in pairs(self.fighters) do
+		fighter:update(dt)
+	end
+--	local x, y = player.body:getPosition()
+--	camera:follow(x, y)
+end
+
+
+function Game:draw ()
+	self.world:draw()
+	for i, fighter in pairs(self.fighters) do
+		fighter:draw()
+	end
+end
+
+
+function Game:keypressed(key)
+	local dir = self.localFighters[1].directionals
+
+	-- if a player presses the left key, then holds the right key, they should
+	-- go right until they let go, then they should go left.
+	if (key == "=" and camera.scale < 10) then
+		camera.scale = camera.scale + .5
+	elseif (key == "-" and camera.scale > .5) then
+		camera.scale = camera.scale - .5
+
+	elseif (key == "escape") then
+		pause_load()
+	else
+		for i, player in pairs(self.localPlayers) do
+			player:keypressed(key)
+		end
+	end
+end
+
+
+function Game:keyreleased (key)
+	for i, player in pairs(self.localPlayers) do
+		player:keyreleased(key)
+	end
+end
+
+
+-- LOBBY superclass for pre-matches
+----------------------------------------
+Lobby = class("Lobby")
+
+
+-- LOBBIEST	proposed fighter
+----------------------------------------
+Lobbiest = class("Lobbiest")
+
+function Lobbiest:initialize(name)
+	self.name = name or NAMES[math.random(1, table.maxn(NAMES))]
+	self.character = CHARACTERS[math.random(1, table.maxn(CHARACTERS))]
+end
+
+
+-- LOCALLOBBIEST
+----------------------------------------
+LocalLobbiest = class("LocalLobbiest", Lobbiest)
+
+function LocalLobbiest:initialize(name, keymap)
+	Lobbiest.initialize(self, name)
+	self.keymap = keymap or KEYMAPS[math.random(1, table.maxn(KEYMAPS))]
+end
+
+
 -- MENU	used for creating menus (lol)
 ----------------------------------------
 Menu = class("Menu")
@@ -402,6 +417,9 @@ function Menu:initialize(x, y, offset_x, offset_y, scale, menuItems)
 	self.ttf = r_ttf
 end
 
+
+function Menu:update ()
+end
 
 function Menu:draw ()
 	for i=1,table.maxn(self.options) do
@@ -453,30 +471,6 @@ function Menu:keyreleased(key)
 	elseif (key == "down") then
 		self.keys['down'] = false
 	end
-end
-
-
--- LOBBY superclass for pre-matches
-----------------------------------------
-Lobby = class("Lobby")
-
--- LOBBIEST	proposed fighter
-----------------------------------------
-Lobbiest = class("Lobbiest")
-
-function Lobbiest:initialize(name)
-	self.name = name or NAMES[math.random(1, table.maxn(NAMES))]
-	self.character = CHARACTERS[math.random(1, table.maxn(CHARACTERS))]
-end
-
-
--- LOCALLOBBIEST
-----------------------------------------
-LocalLobbiest = class("LocalLobbiest", Lobbiest)
-
-function LocalLobbiest:initialize(name, keymap)
-	Lobbiest.initialize(self, name)
-	self.keymap = keymap or KEYMAPS[math.random(1, table.maxn(KEYMAPS))]
 end
 
 
