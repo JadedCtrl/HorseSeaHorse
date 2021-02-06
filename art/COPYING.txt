@@ -1,0 +1,5 @@
+All art assets are licensed under Free Culture licenses that allow
+(commercial) redistribution, modification, etc.
+
+Each asset (under the "art" directory) has a corresponding text-file with
+the author, the source URL, and licensing information.
