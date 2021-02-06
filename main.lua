@@ -4,7 +4,7 @@ wind	= require "lib/windfield"
 stalker	= require "lib/STALKER-X"
 
 mainmenu = 0; game = 1; gameover = 2; pause = 3; youwin = 4
-swordLength = 40; knifeLength = 10
+startSwordLength = 40; startKnifeLength = 10
 
 world = wind.newWorld(0, 0, true)
 
@@ -205,8 +205,14 @@ function game_load()
 	world:addCollisionClass('Shield')
 	world:addCollisionClass('Sword')
 
-	player = Fighter:new(300, 300)
-	punching_bag = Fighter:new(350, 350)
+	localPlayers = {}
+	localPlayers[1] = LocalPlayer:new(300, 300, keymaps[1])
+	localPlayers[2] = LocalPlayer:new(350, 350, keymaps[2])
+
+	localFighters = localPlayers
+
+	fighters = localFighters
+
 	camera:fade(.2, {0,0,0,0})
 	camera:setFollowLerp(0.1)
 	camera:setFollowStyle('TOPDOWN')
@@ -220,60 +226,46 @@ end
 
 function game_update(dt)
 	world:update(dt)
-	player:update(dt)
 
-	local x, y = player.body:getPosition()
+	for i, fighter in pairs(fighters) do
+		fighter:update(dt)
+	end
+--	local x, y = player.body:getPosition()
 --	camera:follow(x, y)
 end
 
 
 function game_draw ()
 	world:draw()
-	player:draw()
+	for i, fighter in pairs(fighters) do
+		fighter:draw()
+	end
 end
 
 
 function game_keypressed(key)
-	local dir = player.directionals
+	local dir = localFighters[1].directionals
 
 	-- if a player presses the left key, then holds the right key, they should
 	-- go right until they let go, then they should go left.
-	if (key == "right" or key == "d") then
-		dir['right'] = 1
-		if (dir['left'] == 1) then dir['left'] = 2; end
-	elseif (key == "left" or key == "a") then
-		dir['left'] = 1
-		if (dir['right'] == 1) then dir['right'] = 2; end
-	elseif (key == "up" or key == "w") then
-		dir['up'] = 1
-		if (dir['down'] == 1) then dir['down'] = 2; end
-	elseif (key == "down" or key == "s") then
-		dir['down'] = 1
-		if (dir['up'] == 1) then dir['up'] = 2; end
-
-	elseif (key == "=" and camera.scale < 10) then
+	if (key == "=" and camera.scale < 10) then
 		camera.scale = camera.scale + .5
 	elseif (key == "-" and camera.scale > .5) then
 		camera.scale = camera.scale - .5
 
 	elseif (key == "escape") then
 		pause_load()
+	else
+		for i, player in pairs(localPlayers) do
+			player:keypressed(key)
+		end
 	end
 end
 
 
 function game_keyreleased (key)
-	local dir = player.directionals
-	local dx, dy = player.body:getLinearVelocity()
-
-	if (key == "right" or key == "d") then
-		dir['right'] = 0
-	elseif (key == "left" or key == "a") then
-		dir['left'] = 0
-	elseif (key == "up" or key == "w") then
-		dir['up'] = 0
-	elseif (key == "down") then
-		dir['down'] = 0
+	for i, player in pairs(localPlayers) do
+		player:keyreleased(key)
 	end
 end
 
@@ -284,53 +276,19 @@ end
 ----------------------------------------
 Fighter = class('Fighter')
 
-function Fighter:initialize(x, y, character)
+function Fighter:initialize(x, y, character, swordType, swordSide)
+	self.swordType = swordType or 'normal'
+	self.swordSide = swordSide or 'top'
+	self.character = character or "jellyfish-lion.png"
+
 	self.directionals = {}
-	if (character == nil) then self.character = "jellyfish-lion.png"; end
+	self.deadPieces = {}
+
 	self.sprite = love.graphics.newImage("art/sprites/" .. self.character)
-		
-	self.body = world:newRectangleCollider(x, y, 16, 16);
-	self.body:setCollisionClass('Fighter')
-	self.body:setObject(self)
-	self.body:setAngularDamping(2)
-	self.body:setLinearDamping(.5)
-	self.body:setPostSolve(self.makePostSolve())
-	self.swordType = 'normal'
 
-	self.shield = world:newRectangleCollider(x, y - 16, 16, 5);
-	self.shield:setCollisionClass('Shield')
-	self.shield:setObject(self)
-
-	if (self.swordType == 'normal') then
-		self.sword = world:newRectangleCollider(x - 8, y - 16, 3, swordLength);
-	else
-		self.sword = world:newRectangleCollider(x - 8, y - 16, 3, knifeLength);
-	end
-	self.sword:setCollisionClass('Sword')
-	self.sword:setObject(self)
-	self.sword:setPostSolve(self.makeSwordPostSolve())
-end
-
-
-function Fighter:makePostSolve()
-	return function(col1, col2, contact)
-		if (col1.collision_class == "Fighter"
-			and col2.collision_class == "Sword")
-		then
-			print("THEY DEEED, dude")
-		end
-	end
-end
-
-
-function Fighter:makeSwordPostSolve()
-	return function(col1, col2, contact)
-		if (col1.collision_class == "Sword"
-			and col2.collision_class == "Shield")
-		then
-			print("SWORD CLASH!!!!")
-		end
-	end
+	self:initBody(x, y)
+	self:initSword()
+	self:initShield()
 end
 
 
@@ -338,6 +296,7 @@ function Fighter:update(dt)
 	local dir = self.directionals
 
 	self:movement()
+	self:glueSwordAndShield()
 
 	if (dir['left'] == 2 and dir['right'] == 0) then dir['left'] = 1; end
 	if (dir['right'] == 2 and dir['left'] == 0) then dir['right'] = 1; end
@@ -348,18 +307,102 @@ function Fighter:draw ()
 	local x,y = self.body:getWorldPoints(self.body.shape:getPoints())
 
 	love.graphics.draw(self.sprite, x, y, self.body:getAngle(), 1, 1)
---	end
 end
 
 
 function Fighter:movement ()
-	self:localMovement()
 end
 
 
-function Fighter:localMovement ()
+function Fighter:initBody(x, y)
+	self.body = world:newRectangleCollider(x, y, 16, 16);
+	self.body:setCollisionClass('Fighter')
+	self.body:setObject(self)
+	self.body:setAngularDamping(2)
+	self.body:setLinearDamping(.5)
+	self.body:setPostSolve(self.makePostSolve())
+end
+
+
+function Fighter:initShield()
+	self.shield = world:newRectangleCollider(0, 0, 20, 5);
+	self.shield:setCollisionClass('Shield')
+	self.shield:setObject(self)
+end
+
+
+function Fighter:initSword()
+	self.swordLength = startSwordLength
+
+	if (self.swordType == 'normal') then
+		self.sword = world:newRectangleCollider(0, 0, 3, self.swordLength);
+	else
+		self.sword = world:newRectangleCollider(0, 0, 3, startKnifeLength);
+	end
+	self.sword:setCollisionClass('Sword')
+	self.sword:setObject(self)
+	self.sword:setPostSolve(self:makeSwordPostSolve())
+end
+
+
+function Fighter:glueSwordAndShield ()
 	local x, y = self.body:getPosition()
-	local dx, dy = self.body:getLinearVelocity()
+	local angle = self.body:getAngle()
+
+	self.shield:setAngle(angle)
+	self.shield:setPosition(x - (math.sin(angle) * 16),
+		y + (math.cos(angle) * 16))
+
+	if (self.swordType == 'normal') then
+		local offset = self.swordLength - 10
+		self.sword:setAngle(angle)
+		self.sword:setPosition(x + (math.sin(angle) * offset),
+			y - (math.cos(angle) * offset))
+
+	elseif (self.swordType == 'knife') then
+		local offset = self.swordLength * 2
+		self.sword:setAngle(angle)
+		self.sword:setPosition(x + (math.sin(angle) * 4.5 * offset),
+			y - (math.cos(angle) * 1.5 * offset))
+	end
+end
+
+
+function Fighter:makePostSolve()
+	return function(col1, col2, contact)
+		if (col1.collision_class == "Fighter"
+			and col2.collision_class == "Sword")
+		then
+--			print(col2.shape)
+--			print("THEY DEEED, dude")
+		end
+	end
+end
+
+
+function Fighter:makeSwordPostSolve()
+	return function(col1, col2, contact)
+		if (col1.collision_class == "Sword"
+			and col2.collision_class == "Shield")
+		then
+--			print("SWORD CLASH!!!!")
+		end
+	end
+end
+
+
+-- LocalPlayer	for local players (ofc)
+----------------------------------------
+LocalPlayer = class("LocalPlayer", Fighter)
+
+function LocalPlayer:initialize(x, y, keymap, character, swordType, swordSide)
+	self.keymap = keymap or keymaps[1]
+	Fighter.initialize(self, x, y, character, swordType, swordSide)
+end
+
+
+function LocalPlayer:movement ()
+	local x, y = self.body:getPosition()
 	local dir = self.directionals
 	local angle = self.body:getAngle()
 
@@ -376,19 +419,54 @@ function Fighter:localMovement ()
 		self.body:applyAngularImpulse(-45, 1)
 		dir['down'] = 0
 	end
+end
 
-	self.shield:setAngle(angle)
-	self.shield:setPosition(x - (math.sin(angle) * 16), y + (math.cos(angle) * 16))
 
-	if (self.swordType == 'normal') then
-		local offset = swordLength - 5
-		self.sword:setAngle(angle)
-		self.sword:setPosition(x + (math.sin(angle) * offset), y - (math.cos(angle) * offset))
-	elseif (self.swordType == 'knife') then
-		local offset = knifeLength * 2
-		self.sword:setAngle(angle)
-		self.sword:setPosition(x + (math.sin(angle) * 4.5 * offset), y - (math.cos(angle) * 1.5 * offset))
+function LocalPlayer:keypressed(key)
+	local dir = self.directionals
+
+	if (key == self.keymap["right"]) then
+		dir['right'] = 1
+		if (dir['left'] == 1) then dir['left'] = 2; end
+
+	elseif (key == self.keymap["left"]) then
+		dir['left'] = 1
+		if (dir['right'] == 1) then dir['right'] = 2; end
+
+	elseif (key == self.keymap["accel"]) then
+		dir['up'] = 1
+		if (dir['down'] == 1) then dir['down'] = 2; end
+
+	elseif (key == self.keymap["flip"]) then
+		dir['down'] = 1
+		if (dir['up'] == 1) then dir['up'] = 2; end
+	end	
+end
+
+
+function LocalPlayer:keyreleased(key)
+	local dir = self.directionals
+
+	if (key == self.keymap["right"]) then
+		dir['right'] = 0
+
+	elseif (key == self.keymap["left"]) then
+		dir['left'] = 0
+
+	elseif (key == self.keymap["accel"]) then
+		dir['up'] = 0
+
+	elseif (key == self.keymap["flip"]) then
+		dir['down'] = 0
 	end
+end
+
+-- LocalBot	andddd for bots too
+----------------------------------------
+LocalBot = class("LocalBot", Fighter)
+
+function LocalBot:initialize(x, y, character, swordType, swordSide)
+	Fighter.initialize(self, x, y, character, swordType, swordSide)
 end
 
 
@@ -478,7 +556,14 @@ end
 
 -- MISC DATA
 --------------------------------------------------------------------------------
+-- CHARACTERS
+------------------------------------------
 characters = {}
 characters["jellyfish-lion.png"] = {"Lion Jellyfish", "hey, hey. you know whats shocking?", "rapidpunches", "CC-BY-SA 4.0"}
 characters["jellyfish-n.png"] = {"Jellyfish N", "(electricity)", "rapidpunches", "CC-BY-SA 4.0"}
 
+-- LOCAL KEYMAPS
+------------------------------------------
+keymaps = {}
+keymaps[1] = {["accel"] = "w", ["left"] = "a", ["right"] = "d", ["flip"] = "s"}
+keymaps[2] = {["accel"] = "up", ["left"] = "left", ["right"] = "right", ["flip"] = "down"}
