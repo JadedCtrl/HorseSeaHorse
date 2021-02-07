@@ -108,10 +108,7 @@ end
 
 -- IN-GAME
 ----------------------------------------
-Game = class("Game")
-
-function game_load(lobbiests)
-	game = Game:new(lobbiests)
+function game_load(game)
 	game:install()
 end
 
@@ -120,12 +117,12 @@ end
 --------------------------------------------------------------------------------
 -- Fighter		player class
 ----------------------------------------
-Fighter = class('Fighter')
+Player = class('Fighter')
 
-function Fighter:initialize(game, x, y, character, swordType, swordSide)
+function Player:initialize(game, x, y, character, swordType, name)
 	self.game = game
+	self.name = name
 	self.swordType = swordType or 'normal'
-	self.swordSide = swordSide or 'top'
 	self.character = character or math.random(1, table.maxn(CHARACTERS))
 
 	self.directionals = {}
@@ -134,10 +131,12 @@ function Fighter:initialize(game, x, y, character, swordType, swordSide)
 	self:initBody(x, y)
 	self:initSword()
 	self:initShield()
+
+	self.id = math.random(1, 20000)
 end
 
 
-function Fighter:update(dt)
+function Player:update(dt)
 	local dir = self.directionals
 
 	self:movement()
@@ -148,7 +147,7 @@ function Fighter:update(dt)
 end
 
 
-function Fighter:draw()
+function Player:draw()
 	local x,y = self.body:getWorldPoints(self.body.shape:getPoints())
 
 	love.graphics.draw(CHARACTERS[self.character], x, y, self.body:getAngle(),
@@ -156,13 +155,56 @@ function Fighter:draw()
 end
 
 
-function Fighter:movement()
+function Player:movement()
 end
 
 
-function Fighter:initBody(x, y)
+function Player:toTable()
+	local bx1,by1, bx2,by2, bx3,by3, bx4,by4 = self.body.shape:getPoints()
+	local bodyVertices = {bx1,by1, bx2,by2, bx3,by3, bx4,by4}
+
+	local sx1,sy1, sx2,sy2, sx3,sy3, sx4,sy4 = self.sword.shape:getPoints()
+	local swordVertices = {sx1,sy1, sy2,sy2, sx3,by3, sx4,by4}
+
+	local mx1,my1, mx2,my2, mx3,my3, mx4,my4 = self.shield.shape:getPoints()
+	local shieldVertices = {mx1,my1, my2,my2, mx3,by3, mx4,by4}
+
+	return {["bodyBox"] = bodyVertices, ["bodyAngle"] = self.body:getAngle(),
+			["swordBox"] = swordVertices, ["swordAngle"] = self.sword:getAngle(),
+			["shieldBox"] = shieldVertices, ["shieldAngle"] = self.shield:getAngle(),
+			["bodyX"] = self.body:getX(), ["bodyY"] = self.body:getY(),
+			["swordX"] = self.sword:getX(), ["swordY"] = self.sword:getY(),
+			["shieldX"] = self.shield:getX(), ["shieldY"] = self.shield:getY(),
+			["character"] = self.character, ["name"] = self.name,
+			["id"] = self.id}
+end
+
+
+function Player:applyTable(pTable)
+	self.body.shape = love.physics.newPolygonShape(pTable["bodyBox"])
+	self.body:setAngle(pTable["bodyAngle"])
+	self.body:setX(pTable["bodyX"])
+	self.body:setY(pTable["bodyY"])
+
+	self.sword.shape = love.physics.newPolygonShape(pTable["swordBox"])
+	self.sword:setAngle(pTable["swordAngle"])
+	self.sword:setX(pTable["swordX"])
+	self.sword:setY(pTable["swordY"])
+
+	self.shield.shape = love.physics.newPolygonShape(pTable["shieldBox"])
+	self.shield:setAngle(pTable["shieldAngle"])
+	self.shield:setX(pTable["shieldX"])
+	self.shield:setY(pTable["shieldY"])
+
+	self.character = pTable["character"]
+	self.id = pTable["id"]
+	self.name = pTable["name"]
+end
+
+
+function Player:initBody(x, y)
 	self.body = self.game.world:newRectangleCollider(x, y, 16, 16);
-	self.body:setCollisionClass('Fighter')
+	self.body:setCollisionClass('Player')
 	self.body:setObject(self)
 	self.body:setAngularDamping(2)
 	self.body:setLinearDamping(.5)
@@ -170,14 +212,14 @@ function Fighter:initBody(x, y)
 end
 
 
-function Fighter:initShield()
+function Player:initShield()
 	self.shield = self.game.world:newRectangleCollider(0, 0, 20, 5);
 	self.shield:setCollisionClass('Shield')
 	self.shield:setObject(self)
 end
 
 
-function Fighter:initSword()
+function Player:initSword()
 	self.swordLength = SWORDLENGTH 
 
 	if (self.swordType == 'normal') then
@@ -191,7 +233,7 @@ function Fighter:initSword()
 end
 
 
-function Fighter:glueSwordAndShield()
+function Player:glueSwordAndShield()
 	local x, y = self.body:getPosition()
 	local angle = self.body:getAngle()
 
@@ -214,9 +256,9 @@ function Fighter:glueSwordAndShield()
 end
 
 
-function Fighter:makePostSolve()
+function Player:makePostSolve()
 	return function(col1, col2, contact)
-		if (col1.collision_class == "Fighter"
+		if (col1.collision_class == "Player"
 			and col2.collision_class == "Sword")
 		then
 --			print(col2.shape)
@@ -226,7 +268,7 @@ function Fighter:makePostSolve()
 end
 
 
-function Fighter:makeSwordPostSolve()
+function Player:makeSwordPostSolve()
 	return function(col1, col2, contact)
 		if (col1.collision_class == "Sword"
 			and col2.collision_class == "Shield")
@@ -239,11 +281,11 @@ end
 
 -- LocalPlayer	for local players (ofc)
 ----------------------------------------
-LocalPlayer = class("LocalPlayer", Fighter)
+LocalPlayer = class("LocalPlayer", Player)
 
-function LocalPlayer:initialize(game, x, y, keymap, character, swordType, swordSide)
+function LocalPlayer:initialize(game, x, y, keymap, character, swordType, name)
 	self.keymap = keymap or KEYMAPS[1]
-	Fighter.initialize(self, game, x, y, character, swordType, swordSide)
+	Player.initialize(self, game, x, y, character, swordType, name)
 end
 
 
@@ -308,41 +350,49 @@ function LocalPlayer:keyreleased(key)
 end
 
 
--- LocalBot	andddd for bots too
+-- NetPlayer	for network players
 ----------------------------------------
-LocalBot = class("LocalBot", Fighter)
+NetPlayer = class("NetPlayer", Player)
 
-function LocalBot:initialize(x, y, character, swordType, swordSide)
-	Fighter.initialize(self, x, y, character, swordType, swordSide)
+function NetPlayer:initialize(ptable, game)
+	Player.initialize(self, game, 0, 0, 1, 'normal', "sldkfj")
+
+	self:applyTable(ptable)
+end
+
+
+-- HostPlayer	for from-server players
+----------------------------------------
+HostPlayer = class("HostPlayer", NetPlayer)
+
+function HostPlayer:intialize(ptable, game)
+	NetPlayer.initialize(self, ptable, game)
+end
+
+
+-- ClientPlayer	for from-client players
+----------------------------------------
+ClientPlayer = class("ClientPlayer", NetPlayer)
+
+function ClientPlayer:intialize(ptable, game)
+	NetPlayer.initialize(self, ptable, game)
 end
 
 
 -- GAME superclass for matches
 ----------------------------------------
+Game = class("Game")
+
 function Game:initialize(lobbiests)
 	self.world = wind.newWorld(0, 0, true)
-	self.world:addCollisionClass('Fighter')
+	self.world:addCollisionClass('Player')
 	self.world:addCollisionClass('Shield')
 	self.world:addCollisionClass('Sword')
 
-	self.remotePlayers = {}
 	self.localPlayers = {}
-	self.remotePlayersN = 0
 	self.localPlayersN = 0
 
-	for k,lobbiest in pairs(lobbiests) do
-		if (lobbiest.class.name == "LocalLobbiest") then
-			local i = self.localPlayersN + 1
-			self.localPlayers[i] = LocalPlayer:new(self, 0 + i * 50, 0 + i * 50,
-				KEYMAPS[i], lobbiest.character)
-			self.localPlayersN = i
-		end
-	end
-
-	self.localFighters = self.localPlayers
-
-	self.fighters = self.localFighters
-
+	self:addLobbiests(lobbiests)
 end
 
 
@@ -358,24 +408,22 @@ end
 function Game:update(dt)
 	self.world:update(dt)
 
-	for i, fighter in pairs(self.fighters) do
-		fighter:update(dt)
+	for k,player in pairs(self:players()) do
+		player:update(dt)
 	end
---	local x, y = player.body:getPosition()
---	camera:follow(x, y)
 end
 
 
 function Game:draw()
 	self.world:draw()
-	for i, fighter in pairs(self.fighters) do
-		fighter:draw()
+	for k,player in pairs(self:players()) do
+		player:draw()
 	end
 end
 
 
 function Game:keypressed(key)
-	local dir = self.localFighters[1].directionals
+	local dir = self.localPlayers[1].directionals
 
 	-- if a player presses the left key, then holds the right key, they should
 	-- go right until they let go, then they should go left.
@@ -384,8 +432,16 @@ function Game:keypressed(key)
 	elseif (key == "-" and camera.scale > .5) then
 		camera.scale = camera.scale - .5
 
+	elseif (key == "t") then
+		local chatbox = TextBox:new(10,770, 2, 99, nil, nil,
+			function (text)
+				self:sendChat(text)
+				self:install()
+			end)
+		chatbox:install(false, drawFunction, nil, false)
+
 	elseif (key == "escape") then
-		pause_load()
+		menu_load(makeMainMenu())
 	else
 		for i, player in pairs(self.localPlayers) do
 			player:keypressed(key)
@@ -398,6 +454,162 @@ function Game:keyreleased (key)
 	for i, player in pairs(self.localPlayers) do
 		player:keyreleased(key)
 	end
+end
+
+
+function Game:players()
+	return self.localPlayers
+end
+
+
+function Game:sendChat(message)
+	local author = "AGhost"
+	if (self.localPlayersN > 0) then
+		author = self.localPlayers[1].name
+	end
+	logMsg(author, message)
+	return author,message
+end
+
+
+function Game:addLobbiests(localLobbiests)
+	for k,lobbiest in pairs(localLobbiests) do
+		local i = self.localPlayersN + 1
+		self.localPlayers[i] = LocalPlayer:new(self, 0 + i * 50, 0 + i * 50,
+			KEYMAPS[i], lobbiest.character, lobbiest.swordType, lobbiest.name)
+		self.localPlayersN = i
+	end
+end
+
+
+-- NETGAME superclass for online matches
+----------------------------------------
+NetGame = class("NetGame", Game)
+
+function NetGame:initialize(localLobbiests, sock)
+	self.remotePlayers = {}
+	self.remotePlayersN = 0
+	self.sock = sock
+
+	Game.initialize(self, localLobbiests)
+	self:sockCallbacks()
+end
+
+
+function NetGame:sockCallbacks()
+	self.sock:on("newPlayers",
+		function(playerTables, client)
+			self:addNewPlayers(playerTables, client)
+		end)
+	self.sock:on("playerPing",
+		function(playerTables, client)
+			self:receivePlayers(playerTables, client)
+		end)
+end
+
+
+function NetGame:update(dt)
+	Game.update(self, dt)
+	self:sendPlayers()
+	self.sock:update()
+end
+
+
+function NetGame:players()
+	local players = {}
+	table.foreach(self.localPlayers,
+		function(k, v)	table.insert(players, v) end)
+	table.foreach(self.remotePlayers,
+		function(k, v)	table.insert(players, v) end)
+	return players
+end
+
+
+function NetGame:receivePlayers(playerTables, client)
+	for i,ptable in pairs(playerTables) do
+		local id = ptable["id"]
+		if (self.remotePlayers[id] == nil) then
+			self:addNewPlayer(ptable)
+		end
+		self.remotePlayers[id]:applyTable(ptable)
+	end
+end
+
+
+-- HOSTGAME for server matches
+----------------------------------------
+HostGame = class("HostGame", NetGame)
+
+function HostGame:initialize(localLobbiests, server)
+	NetGame.initialize(self, localLobbiests, server)
+
+	self.sock:sendToAll("newGame", nil)
+end
+
+
+function HostGame:sockCallbacks()
+	NetGame.sockCallbacks(self)
+end
+
+
+function HostGame:sendChat(message)
+	local author,text = Game.sendChat(self, message)
+	self.sock:sendToAll("chat", {["author"] = author, ["text"] = text})
+end
+
+
+function HostGame:addNewPlayer(ptable)
+	self.remotePlayersN = self.remotePlayersN + 1
+	self.remotePlayers[ptable["id"]] = ClientPlayer:new(ptable, self)
+end
+
+
+function HostGame:sendPlayers()
+	local ptables = {}
+
+	for i,player in pairs(self.localPlayers) do
+		table.insert(ptables, player:toTable())
+	end
+
+	self.sock:sendToAll("playerPing", ptables)
+end
+
+
+function HostGame:receivePlayers(playerTables, client)
+	NetGame.receivePlayers(self, playerTables)
+	self.sock:sendToAllBut(client, "playerPing", playerTables)
+end
+
+
+-- CLIENTGAME for client-side matches
+----------------------------------------
+ClientGame = class("ClientGame", NetGame)
+
+function ClientGame:initialize(localLobbiests, client)
+	NetGame.initialize(self, localLobbiests, client)
+end
+
+
+function ClientGame:sendChat(message)
+	local author,text = Game.sendChat(self, message)
+	self.sock:send("chat", {["author"] = author, ["text"] = text})
+end
+
+
+function ClientGame:sendPlayers()
+	local ptables = {}
+
+	for i,player in pairs(self.localPlayers) do
+		table.insert(ptables, player:toTable())
+	end
+
+	self.sock:send("playerPing", ptables)
+end
+
+
+function ClientGame:addNewPlayer(ptable)
+	self.remotePlayersN = self.remotePlayersN + 1
+	self.remotePlayers[ptable["id"]] = HostPlayer:new(ptable, self)
 end
 
 
@@ -566,7 +778,7 @@ end
 
 function LocalLobby:keypressed(key)
 	if (key == "return" and self:lobbiestsN() > 1) then
-		game_load(self:lobbiests())
+		game_load(Game:new(self:lobbiests()))
 	else
 		Lobby.keypressed(self, key)
 	end
@@ -634,12 +846,22 @@ function HostLobby:sockCallbacks()
 	self.sock:on("connect",
 		function (data, client)
 --			self:sendLobbiests()
+--			st
 		end)
 
 	self.sock:on("disconnect",
 		function (data, client)
 			self:removeLobbiestsOfClient(client)
 		end)
+end
+
+
+function HostLobby:keypressed(key)
+	if (key == "return" and self:lobbiestsN() > 1) then
+		game_load(HostGame:new(self.localLobbiests, self.sock))
+	else
+		Lobby.keypressed(self, key)
+	end
 end
 
 
@@ -752,6 +974,11 @@ function ClientLobby:sockCallbacks()
 	self.sock:on("disconnect",
 		function (ignoredData)
 			self.status = "Disconnected"
+		end)
+
+	self.sock:on("newGame",
+		function (data, client)
+			game_load(ClientGame:new(self.localLobbiests, self.sock))
 		end)
 end
 
