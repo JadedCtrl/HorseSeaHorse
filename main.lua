@@ -10,6 +10,9 @@ SWORDWIDTH = 3
 SHIELDWIDTH = 16
 SHIELDHEIGHT = 5
 
+MP_PORT = 13371
+CHATLOG = {}
+
 
 -- GAME STATES
 --------------------------------------------------------------------------------
@@ -18,11 +21,12 @@ SHIELDHEIGHT = 5
 function love.load()
 	math.randomseed(os.time())
 
+	logMsg(nil, "Starting up...")
 	love.graphics.setDefaultFilter("nearest", "nearest")
 	a_ttf = love.graphics.newFont("art/font/alagard.ttf", nil, "none")
 	r_ttf = love.graphics.newFont("art/font/romulus.ttf", nil, "none")
 
-	camera = stalker()
+	love.resize()
 
 	menu_load(makeMainMenu())
 end
@@ -37,13 +41,16 @@ end
 function love.draw()
 	camera:attach()
 	drawFunction()
+	drawLogMsgs()
 	camera:detach()
 	camera:draw()
 end
 
 
 function love.resize()
-	camera = stalker()
+	local width,height = love.window.getMode()
+	logMsg("[Window]", width .. "x" .. height)
+	newCamera()
 end
 
 
@@ -80,7 +87,7 @@ function makeNetMenu()
 		{love.graphics.newText(a_ttf, "Join"),
 			function ()
 				local addressBox =
-					TextBox:new(100, 100, 3, 99, "127.0.0.1", "Address/Host: ",
+					TextBox:new(100, 100, 3, 99, "192.168.254.51", "Address/Host: ",
 						function (text) lobby_load(ClientLobby, text) end)
 				addressBox:install()
 			end},
@@ -90,9 +97,6 @@ function makeNetMenu()
 			function () menu_load(makeMainMenu()) end}})
 end
 
-
--- NET
-----------------------------------------
 
 -- GAME LOBBY
 ----------------------------------------
@@ -339,9 +343,6 @@ function Game:initialize(lobbiests)
 
 	self.fighters = self.localFighters
 
-	camera:fade(.2, {0,0,0,0})
-	camera:setFollowLerp(0.1)
-	camera:setFollowStyle('TOPDOWN')
 end
 
 
@@ -436,7 +437,7 @@ function Lobby:draw()
 		love.graphics.draw(love.graphics.newText(self.ttf, lobbiest.name),
 			rowX + SWORDLENGTH + 30, rowY, 0, self.scale)
 		love.graphics.draw(love.graphics.newText(self.ttf, lobbiest.class.name),
-			rowX + 500, rowY, 0, self.scale)
+			rowX + 550, rowY, 0, self.scale)
 
 		if (lobbiest.class.name == "LocalLobbiest") then
 			local keymap = lobbiest.keymap
@@ -444,18 +445,24 @@ function Lobby:draw()
 				.. keymap["flip"] .. " " .. keymap["right"]
 
 			love.graphics.draw(love.graphics.newText(self.ttf, text),
-				rowX + 300, rowY + 5, 0, self.scale * (2/3))
+				rowX + 350, rowY + 5, 0, self.scale * (2/3))
 		end
 	end
 
+	local rowX = 470
+	local rowY = 500
 	love.graphics.draw(love.graphics.newText(self.ttf, "SPACE: Add player"),
-		10, 460, 0, self.scale)
+		rowX, rowY + (40 * 1), 0, self.scale)
+	love.graphics.draw(love.graphics.newText(self.ttf, "DELETE: Del player"),
+		rowX, rowY + (40 * 2), 0, self.scale)
+
+	rowY = 560
 	love.graphics.draw(love.graphics.newText(self.ttf, "LEFT: Edit name"),
-		10, 500, 0, self.scale)
+		rowX, rowY + (40 * 2), 0, self.scale)
 	love.graphics.draw(love.graphics.newText(self.ttf, "RIGHT: Change sprite"),
-		10, 520, 0, self.scale)
+		rowX, rowY + (40 * 3), 0, self.scale)
 	love.graphics.draw(love.graphics.newText(self.ttf, "ACCEL: Change sword"),
-		10, 540, 0, self.scale)
+		rowX, rowY + (40 * 4), 0, self.scale)
 end
 
 
@@ -475,6 +482,17 @@ end
 function Lobby:keypressed(key)
 	if (key == "space" and self.localLobbiestsN < table.maxn(KEYMAPS)) then
 		self:newLocalLobbiest()
+
+	elseif (key == "t") then
+		local chatbox = TextBox:new(10,770, 2, 99, nil, nil,
+			function (text)
+				self:sendChat(text)
+				self:install()
+			end)
+		chatbox:install(false, drawFunction, nil, false)
+			
+	elseif (key == "escape") then
+		self:toMainMenu()
 	else
 		for i,lobbiest in pairs(self.localLobbiests) do
 			lobbiest:keypressed(key, self)
@@ -484,6 +502,21 @@ end
 
 
 function Lobby:keyreleased(key)
+end
+
+
+function Lobby:toMainMenu()
+	menu_load(makeMainMenu())
+end
+
+
+function Lobby:sendChat(message)
+	local author = "AGhost"
+	if (self.localLobbiestsN > 0) then
+		author = self.localLobbiests[1].name
+	end
+	logMsg(author, message)
+	return author,message
 end
 
 
@@ -520,6 +553,8 @@ function Lobby:localLobbiestTables()
 end
 
 
+
+
 -- LOCAL LOBBY
 ----------------------------------------
 LocalLobby = class("LocalLobby", Lobby)
@@ -538,38 +573,111 @@ function LocalLobby:keypressed(key)
 end
 
 
--- NET - HOST LOBBY
+-- NET - NET LOBBY
 ----------------------------------------
-HostLobby = class("HostLobby", Lobby)
+NetLobby = class("NetLobby", Lobby)
 
-function HostLobby:initialize()
+function NetLobby:initialize()
 	Lobby.initialize(self)
-	self.server = sock.newServer("*", 13371)
-	self.server:setSerialization(bitser.dumps, bitser.loads)
+end
 
-	self.server:on("connect",
-		function (data, client)
-			print("GOD IS DEAD BUT THERE'S A CONNECTION")
+
+function NetLobby:install()
+	Lobby.install(self)
+	self:sendLobbiests()
+end
+
+
+function NetLobby:update(dt)
+	self.sock:update()
+end
+
+
+function NetLobby:keypressed(key)
+	Lobby.keypressed(self, key)
+	self:sendLobbiests()
+end
+
+
+function NetLobby:sockCallbacks()
+	self.sock:on("chat",
+		function (chatData, client)
+			self:chatReceived(chatData, client)
 		end)
-
-	self.server:on("lobbiestsUpdate",
+	self.sock:on("lobbiests",
 		function (localLobbiests, client)
-			for i,v in pairs(localLobbiests) do
-				print(v["name"])
-			end
-			self:updateLobbiests(localLobbiests, client)
+			self:receiveLobbiests(localLobbiests, client)
 		end)
 end
 
 
-function HostLobby:update(dt)
-	self.server:update()
+function NetLobby:chatReceived(chatData, client)
+	logMsg(chatData["author"], chatData["text"])
+end
+
+
+-- NET - HOST LOBBY
+----------------------------------------
+HostLobby = class("HostLobby", NetLobby)
+
+function HostLobby:initialize()
+	NetLobby.initialize(self)
+	self.sock = sock.newServer("*", MP_PORT)
+	self.sock:setSerialization(bitser.dumps, bitser.loads)
+	self:sockCallbacks()
+end
+
+
+function HostLobby:sockCallbacks()
+	NetLobby.sockCallbacks(self)
+
+	self.sock:on("connect",
+		function (data, client)
+--			self:sendLobbiests()
+		end)
+
+	self.sock:on("disconnect",
+		function (data, client)
+			self:removeLobbiestsOfClient(client)
+		end)
+end
+
+
+function HostLobby:toMainMenu()
+--	self.sock:destroy()
+--	Lobby.toMainMenu(self)
+end
+
+
+function HostLobby:sendChat(message)
+	local author,text = Lobby.sendChat(self, message)
+	self.sock:sendToAll("chat", {["author"] = author, ["text"] = text})
+end
+
+
+function HostLobby:chatReceived(chatData, client)
+	NetLobby.chatReceived(self, chatData)
+	self.sock:sendToAllBut(client, "chat", chatData)
 end
 
 
 function HostLobby:sendLobbiests()
---	for i,v in pairs(localLobbiests) do
-	self.serverToAll:send("lobbiestsUpdate", self:localLobbiestTables())
+	for k,client in pairs(self.sock:getClients()) do
+		client:send("lobbiests", self:lobbiestTables(client))
+	end
+end
+
+
+function HostLobby:receiveLobbiests(localLobbiestTables, client)
+	self:removeLobbiestsOfClient(client)
+
+	for k,lobbiestTable in pairs(localLobbiestTables) do
+		table.insert(self.remoteLobbiests,
+			ClientLobbiest:new(self, client, lobbiestTable))
+		self.remoteLobbiestsN = self.remoteLobbiestsN + 1
+	end
+
+	self:sendLobbiests()
 end
 
 
@@ -579,57 +687,77 @@ function HostLobby:newLocalLobbiest()
 end
 
 
-function HostLobby:updateLobbiests(localLobbiests, client)
-	local newRemotes = {}
+function HostLobby:removeLobbiestsOfClient(client)
+	local lobbiests = {}
+	local n = 0
+
 	for k,lobbiest in pairs(self.remoteLobbiests) do
-		if (lobbiest.client == client) then
-			self.remoteLobbiestsN = self.remoteLobbiestsN - 1
-		else
-			table.insert(newRemotes, lobbiest)
+		if not (lobbiest.client == client) then
+			table.insert(lobbiests, lobbiest)
+			n = n + 1
 		end
 	end
-			
-	for k,lobbiest in pairs(localLobbiests) do
-		table.insert(newRemotes, ClientLobbiest:new(self, client, lobbiest))
-		self.remoteLobbiestsN = self.remoteLobbiestsN + 1
-	end
+	self.remoteLobbiests  = lobbiests
+	self.remoteLobbiestsN = n
+end
 
-	self.remoteLobbiests = newRemotes
+
+function HostLobby:remoteLobbiestTables(client)
+	local lobbiests = {}
+	table.foreach(self.remoteLobbiests,
+		function (k, lobbiest)
+			if not (lobbiest.client == client) then
+				table.insert(lobbiests, lobbiest:toTable())
+			end
+		end)
+	return lobbiests	
+end
+
+
+function HostLobby:lobbiestTables(client)
+	local lobbiests = {}
+	table.foreach(self:localLobbiestTables(),
+		function(k, v)	table.insert(lobbiests, v) end)
+	table.foreach(self:remoteLobbiestTables(client),
+		function(k, v)	table.insert(lobbiests, v) end)
+	return lobbiests
 end
 
 
 -- NET - CLIENT LOBBY
 ----------------------------------------
-ClientLobby = class("ClientLobby", Lobby)
+ClientLobby = class("ClientLobby", NetLobby)
 
 function ClientLobby:initialize(address)
-	Lobby.initialize(self)
+	NetLobby.initialize(self)
 	self.status = "Connecting..."
 
-	self.client = sock.newClient(address, 13371)
-	self.client:setSerialization(bitser.dumps, bitser.loads)
+	self.sock = sock.newClient(address, MP_PORT)
+	self.sock:setSerialization(bitser.dumps, bitser.loads)
+	self:sockCallbacks()
 
-	self.client:on("connect",
-		function (data)
+	self.sock:connect()
+end
+
+
+function ClientLobby:sockCallbacks()
+	NetLobby.sockCallbacks(self)
+
+	self.sock:on("connect",
+		function (ignoredData)
 			self.status = "Connected!"
-			self.client:send("lobbiestsUpdate", self:localLobbiestTables())
+			self.sock:send("lobbiests", self:localLobbiestTables())
 		end)
 
-	self.client:on("disconnect",
-		function (data)
+	self.sock:on("disconnect",
+		function (ignoredData)
 			self.status = "Disconnected"
 		end)
-
-	self.client:on("lobbiestsUpdate",
-		function (lobbiests)
-			self.remoteLobbiests = lobbiests
-		end)
-	self.client:connect()
 end
 
 
 function ClientLobby:update(dt)
-	self.client:update()
+	self.sock:update()
 end
 
 
@@ -641,12 +769,37 @@ function ClientLobby:draw()
 end
 
 
-function ClientLobby:updateLobbiests(localLobbiests)
+function ClientLobby:toMainMenu()
+	self.sock:disconnect()
+	Lobby.toMainMenu(self)
+end
+
+
+function ClientLobby:sendChat(message)
+	local author,text = Lobby.sendChat(self, message)
+	self.sock:send("chat", {["author"] = author, ["text"] = text})
+end
+
+
+function ClientLobby:sendLobbiests()
+	self.sock:send("lobbiests", self:localLobbiestTables())
+end
+
+
+function ClientLobby:receiveLobbiests(remoteLobbiestTables)
+	self.remoteLobbiests = {}
+	self.remoteLobbiestsN = 0
+
+	for i,lobbiestTable in pairs(remoteLobbiestTables) do
+		table.insert(self.remoteLobbiests, HostLobbiest:new(nil, lobbiestTable))
+		self.remoteLobbiestsN = self.remoteLobbiestsN + 1
+	end
+end
 
 
 function ClientLobby:newLocalLobbiest()
 	Lobby.newLocalLobbiest(self)
-	self.client:send("lobbiestsUpdate", self:localLobbiestTables())
+	self:sendLobbiests()
 end
 
 
@@ -727,8 +880,10 @@ end
 ----------------------------------------
 HostLobbiest = class("HostLobbiest", Lobbiest)
 
-function HostLobbiest:initialize(lobby)
-	Lobbiest.initialize(self, lobby)
+function HostLobbiest:initialize(lobby, lobbiestTable)
+	self.name = lobbiestTable["name"]
+	self.swordType = lobbiestTable["swordType"]
+	self.character = lobbiestTable["character"]
 end
 
 
@@ -825,8 +980,8 @@ function TextBox:initialize(x, y, scale, max, initialText, label, onEnter)
 	self.x,self.y = x,y
 	self.scale = scale
 	self.onEnter = onEnter
-	self.text = initialText
-	self.label = label
+	self.text = initialText or ""
+	self.label = label or ""
 	self.max = max or 999
 
 	self.ttf = r_ttf
@@ -854,7 +1009,6 @@ end
 
 
 function TextBox:keypressed(key)
-	print(key)
 	if (key == "return") then
 		self.onEnter(self.text)
 
@@ -871,6 +1025,35 @@ end
 
 
 function TextBox:keyreleased(key)
+end
+
+
+-- CHAT/LOGGING
+--------------------------------------------------------------------------------
+function logMsg(source, text)
+	local string = text
+	if not (source == nil) then
+		string = source .. ": " .. text
+	end
+
+	print(string)
+	table.remove(CHATLOG, 5)
+	table.insert(CHATLOG, 1, string)
+end
+
+
+function drawLogMsgs()
+	local x,y = 10,600
+	local offset_y = 30
+	local scale = 1.7
+	local chatCount = table.maxn(CHATLOG)
+
+	for i=1,chatCount  do
+		local this_y = y + (offset_y * (chatCount - i))
+
+		love.graphics.draw(love.graphics.newText(a_ttf, CHATLOG[i]),
+			x, this_y, 0, scale, scale)
+	end
 end
 
 
@@ -915,6 +1098,18 @@ function hookInstall(newUpdate, newDraw, newPress, newRelease,
 end
 
 
+function newCamera()
+	local width,height = love.window.getMode()
+	local scale =  height / 800
+	logMsg("[Camera]", "Scale: " .. scale)
+
+	camera = stalker()
+	camera.scale = scale
+	camera:setFollowStyle('NO_DEADZONE')
+	camera:follow(400, 400)
+end
+
+
 -- MISC DATA
 --------------------------------------------------------------------------------
 -- CHARACTERS
@@ -929,7 +1124,8 @@ CHARACTERS[3] = love.graphics.newImage("art/sprites/shark-unicorn.png")
 
 -- DEFAULT NAMES
 ------------------------------------------
-NAMES = {"Ignucius", "Penguin", "Tux", "Puffy", "Doktoro", "Espero", "<3", "</3"}
+NAMES = {"Ignucius", "Splashers", "Penguin", "Tux", "Puffy", "Doktoro",
+	"Espero", "<3", "</3", "Blublub", "Hase-ian"}
 
 -- LOCAL KEYMAPS
 ------------------------------------------
