@@ -35,4 +35,6 @@ BORING STUFF
 --------------------------------------------------
 Jaidyn Ann <jadedctrl@teknik.io>
 Code under GPLv3 (see COPYING.txt)
-Art assets all under the CC-BY 4.0
+Sprites all under the CC-BY 4.0
+Music (*.ogg) all under the CC-BY 3.0 (by Kevin MacLeod)
+Music (*.wav) all under the GPL (by Ziz of Hase)

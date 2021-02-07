@@ -21,10 +21,15 @@ CHATLOG = {}
 function love.load()
 	math.randomseed(os.time())
 
+	bgm = nil
+	newBgm()
+
 	logMsg(nil, "Starting up...")
 	love.graphics.setDefaultFilter("nearest", "nearest")
 	a_ttf = love.graphics.newFont("art/font/alagard.ttf", nil, "none")
 	r_ttf = love.graphics.newFont("art/font/romulus.ttf", nil, "none")
+
+	love.graphics.setBackgroundColor(0, 152/255, 255/255, 1)
 
 	love.resize()
 
@@ -33,6 +38,9 @@ end
 
 
 function love.update(dt)
+	if (bgm.isPlaying == false) then
+		newBgm()
+	end
 	updateFunction(dt)
 	camera:update(dt)
 end
@@ -122,8 +130,9 @@ Player = class('Fighter')
 function Player:initialize(game, x, y, character, swordType, name)
 	self.game = game
 	self.name = name
-	self.swordType = swordType or 'normal'
+	self.swordType = 'normal'
 	self.character = character or math.random(1, table.maxn(CHARACTERS))
+	self.lives = 5
 
 	self.directionals = {}
 	self.deadPieces = {}
@@ -142,6 +151,19 @@ function Player:update(dt)
 	self:movement()
 	self:glueSwordAndShield()
 
+	if (self.body:getX() < 0) then
+		self.body:setX(800)
+	elseif (self.body:getX() > 800) then
+		self.body:setX(0)
+	end
+
+	if (self.body:getY() < 0) then
+		self.body:setY(800)
+	elseif (self.body:getY() > 800) then
+		self.body:setY(0)
+	end
+
+
 	if (dir['left'] == 2 and dir['right'] == 0) then dir['left'] = 1; end
 	if (dir['right'] == 2 and dir['left'] == 0) then dir['right'] = 1; end
 end
@@ -152,6 +174,9 @@ function Player:draw()
 
 	love.graphics.draw(CHARACTERS[self.character], x, y, self.body:getAngle(),
 		1, 1)
+
+	love.graphics.polygon("fill", self.sword:getWorldPoints(self.sword.shape:getPoints()))
+	love.graphics.polygon("fill", self.shield:getWorldPoints(self.shield.shape:getPoints()))
 end
 
 
@@ -164,10 +189,10 @@ function Player:toTable()
 	local bodyVertices = {bx1,by1, bx2,by2, bx3,by3, bx4,by4}
 
 	local sx1,sy1, sx2,sy2, sx3,sy3, sx4,sy4 = self.sword.shape:getPoints()
-	local swordVertices = {sx1,sy1, sy2,sy2, sx3,by3, sx4,by4}
+	local swordVertices = {sx1,sy1, sy2,sy2, sx3,sy3, sx4,sy4}
 
 	local mx1,my1, mx2,my2, mx3,my3, mx4,my4 = self.shield.shape:getPoints()
-	local shieldVertices = {mx1,my1, my2,my2, mx3,by3, mx4,by4}
+	local shieldVertices = {mx1,my1, my2,my2, mx3,my3, mx4,my4}
 
 	return {["bodyBox"] = bodyVertices, ["bodyAngle"] = self.body:getAngle(),
 			["swordBox"] = swordVertices, ["swordAngle"] = self.sword:getAngle(),
@@ -261,6 +286,7 @@ function Player:makePostSolve()
 		if (col1.collision_class == "Player"
 			and col2.collision_class == "Sword")
 		then
+--			col1.object.game:sendChat(self.name .. " lost a life! " .. self.lives .. " left!")
 --			print(col2.shape)
 --			print("THEY DEEED, dude")
 		end
@@ -273,7 +299,6 @@ function Player:makeSwordPostSolve()
 		if (col1.collision_class == "Sword"
 			and col2.collision_class == "Shield")
 		then
---			print("SWORD CLASH!!!!")
 		end
 	end
 end
@@ -415,7 +440,7 @@ end
 
 
 function Game:draw()
-	self.world:draw()
+--	self.world:draw()
 	for k,player in pairs(self:players()) do
 		player:draw()
 	end
@@ -1337,6 +1362,11 @@ function newCamera()
 end
 
 
+function newBgm()
+	bgm = love.audio.newSource(MUSIC[math.random(1,table.maxn(MUSIC))], "stream")
+	bgm:play()
+end
+
 -- MISC DATA
 --------------------------------------------------------------------------------
 -- CHARACTERS
@@ -1346,8 +1376,19 @@ CHARACTERS = {}
 CHARACTERS[1] = love.graphics.newImage("art/sprites/jellyfish-lion.png")
 -- N Jellyfish by rapidpunches, CC-BY-SA 4.0
 CHARACTERS[2] = love.graphics.newImage("art/sprites/jellyfish-n.png")
+-- Octopus by rapidpunches, CC-BY-SA 4.0
+CHARACTERS[3] = love.graphics.newImage("art/sprites/octopus.png")
 -- Something Indecipherable by my little brother (<3<3), CC-BY-SA 4.0
-CHARACTERS[3] = love.graphics.newImage("art/sprites/shark-unicorn.png")
+--CHARACTERS[4] = love.graphics.newImage("art/sprites/shark-unicorn.png")
+
+-- MUSIC
+------------------------------------------
+MUSIC = {}
+MUSIC[1] = "art/music/Cephalopod.ogg"
+MUSIC[2] = "art/music/Go Cart.ogg"
+MUSIC[3] = "art/music/Latin Industries.ogg"
+MUSIC[4] = "art/music/Ouroboros.ogg"
+MUSIC[5] = "art/music/Pamgaea.ogg"
 
 -- DEFAULT NAMES
 ------------------------------------------
