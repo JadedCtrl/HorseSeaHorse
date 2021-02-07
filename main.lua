@@ -2,6 +2,8 @@
 class	= require "lib/middleclass"
 wind	= require "lib/windfield"
 stalker	= require "lib/STALKER-X"
+bitser	= require "lib/bitser"
+sock	= require "lib/sock"
 
 SWORDLENGTH = 40; KNIFELENGTH = 10
 SWORDWIDTH = 3
@@ -22,7 +24,7 @@ function love.load()
 
 	camera = stalker()
 
-	mainmenu_load()
+	menu_load(makeMainMenu())
 end
 
 
@@ -55,13 +57,10 @@ function love.keyreleased (key)
 end
 
 
--- MAIN-MENU
+-- MENUS
 ----------------------------------------
-function mainmenu_load()
-	local mainMenu = makeMainMenu()
-	mainMenu:install()
-
-	camera = stalker()
+function menu_load(menu)
+	menu:install()
 end
 
 
@@ -69,15 +68,36 @@ function makeMainMenu()
 	return Menu:new(100, 100, 30, 50, 3, {
 		{love.graphics.newText(a_ttf, "Local"),
 			function () lobby_load(LocalLobby) end},
+		{love.graphics.newText(a_ttf, "Net"),
+			function () menu_load(makeNetMenu()) end},
 		{love.graphics.newText(a_ttf, "Quit"),
 			function () love.event.quit(0) end }})
 end
 
 
+function makeNetMenu()
+	return Menu:new(100, 100, 30, 50, 3, {
+		{love.graphics.newText(a_ttf, "Join"),
+			function ()
+				local addressBox =
+					TextBox:new(100, 100, 3, 99, "127.0.0.1", "Address/Host: ",
+						function (text) lobby_load(ClientLobby, text) end)
+				addressBox:install()
+			end},
+		{love.graphics.newText(a_ttf, "Host"),
+			function () lobby_load(HostLobby) end},
+		{love.graphics.newText(a_ttf, "Back"),
+			function () menu_load(makeMainMenu()) end}})
+end
+
+
+-- NET
+----------------------------------------
+
 -- GAME LOBBY
 ----------------------------------------
-function lobby_load(lobbyClass)
-	lobby = lobbyClass:new()
+function lobby_load(lobbyClass, arg)
+	lobby = lobbyClass:new(arg)
 	lobby:install()
 end
 
@@ -107,9 +127,6 @@ function Fighter:initialize(game, x, y, character, swordType, swordSide)
 	self.directionals = {}
 	self.deadPieces = {}
 
-	self.sprite = love.graphics.newImage("art/sprites/"
-		.. CHARACTERS[self.character]["file"])
-
 	self:initBody(x, y)
 	self:initSword()
 	self:initShield()
@@ -130,7 +147,8 @@ end
 function Fighter:draw()
 	local x,y = self.body:getWorldPoints(self.body.shape:getPoints())
 
-	love.graphics.draw(self.sprite, x, y, self.body:getAngle(), 1, 1)
+	love.graphics.draw(CHARACTERS[self.character], x, y, self.body:getAngle(),
+		1, 1)
 end
 
 
@@ -406,7 +424,7 @@ function Lobby:draw()
 		local rowX = 10
 		local rowY = (25 * i) + 50
 
-		love.graphics.draw(lobbiest.sprite, rowX, rowY, 0, 1, 1)
+		love.graphics.draw(CHARACTERS[lobbiest.character], rowX, rowY, 0, 1, 1)
 		if (lobbiest.swordType == "normal") then
 			love.graphics.rectangle("fill", rowX + 18, rowY + SWORDWIDTH,
 				SWORDLENGTH, SWORDWIDTH)
@@ -459,7 +477,7 @@ function Lobby:keypressed(key)
 		self:newLocalLobbiest()
 	else
 		for i,lobbiest in pairs(self.localLobbiests) do
-			lobbiest:keypressed(key)
+			lobbiest:keypressed(key, self)
 		end
 	end
 end
@@ -492,6 +510,16 @@ function Lobby:lobbiestsN()
 end
 
 
+function Lobby:localLobbiestTables()
+	local lobbiests = {}
+	table.foreach(self.localLobbiests,
+		function (k, lobbiest)
+			table.insert(lobbiests, lobbiest:toTable())
+		end)
+	return lobbiests	
+end
+
+
 -- LOCAL LOBBY
 ----------------------------------------
 LocalLobby = class("LocalLobby", Lobby)
@@ -510,17 +538,132 @@ function LocalLobby:keypressed(key)
 end
 
 
+-- NET - HOST LOBBY
+----------------------------------------
+HostLobby = class("HostLobby", Lobby)
+
+function HostLobby:initialize()
+	Lobby.initialize(self)
+	self.server = sock.newServer("*", 13371)
+	self.server:setSerialization(bitser.dumps, bitser.loads)
+
+	self.server:on("connect",
+		function (data, client)
+			print("GOD IS DEAD BUT THERE'S A CONNECTION")
+		end)
+
+	self.server:on("lobbiestsUpdate",
+		function (localLobbiests, client)
+			for i,v in pairs(localLobbiests) do
+				print(v["name"])
+			end
+			self:updateLobbiests(localLobbiests, client)
+		end)
+end
+
+
+function HostLobby:update(dt)
+	self.server:update()
+end
+
+
+function HostLobby:sendLobbiests()
+--	for i,v in pairs(localLobbiests) do
+	self.serverToAll:send("lobbiestsUpdate", self:localLobbiestTables())
+end
+
+
+function HostLobby:newLocalLobbiest()
+	Lobby.newLocalLobbiest(self)
+	self:sendLobbiests()
+end
+
+
+function HostLobby:updateLobbiests(localLobbiests, client)
+	local newRemotes = {}
+	for k,lobbiest in pairs(self.remoteLobbiests) do
+		if (lobbiest.client == client) then
+			self.remoteLobbiestsN = self.remoteLobbiestsN - 1
+		else
+			table.insert(newRemotes, lobbiest)
+		end
+	end
+			
+	for k,lobbiest in pairs(localLobbiests) do
+		table.insert(newRemotes, ClientLobbiest:new(self, client, lobbiest))
+		self.remoteLobbiestsN = self.remoteLobbiestsN + 1
+	end
+
+	self.remoteLobbiests = newRemotes
+end
+
+
+-- NET - CLIENT LOBBY
+----------------------------------------
+ClientLobby = class("ClientLobby", Lobby)
+
+function ClientLobby:initialize(address)
+	Lobby.initialize(self)
+	self.status = "Connecting..."
+
+	self.client = sock.newClient(address, 13371)
+	self.client:setSerialization(bitser.dumps, bitser.loads)
+
+	self.client:on("connect",
+		function (data)
+			self.status = "Connected!"
+			self.client:send("lobbiestsUpdate", self:localLobbiestTables())
+		end)
+
+	self.client:on("disconnect",
+		function (data)
+			self.status = "Disconnected"
+		end)
+
+	self.client:on("lobbiestsUpdate",
+		function (lobbiests)
+			self.remoteLobbiests = lobbiests
+		end)
+	self.client:connect()
+end
+
+
+function ClientLobby:update(dt)
+	self.client:update()
+end
+
+
+function ClientLobby:draw()
+	Lobby.draw(self)
+	
+	love.graphics.draw(love.graphics.newText(self.ttf, self.status),
+		200, 10, 0, self.scale)
+end
+
+
+function ClientLobby:updateLobbiests(localLobbiests)
+
+
+function ClientLobby:newLocalLobbiest()
+	Lobby.newLocalLobbiest(self)
+	self.client:send("lobbiestsUpdate", self:localLobbiestTables())
+end
+
+
 -- LOBBIEST	proposed fighter
 ----------------------------------------
 Lobbiest = class("Lobbiest")
 
 function Lobbiest:initialize(lobby, name)
-	self.lobby = lobby
 	self.name = name or NAMES[math.random(1, table.maxn(NAMES))]
 	self.character = math.random(1, table.maxn(CHARACTERS))
-	self.sprite = love.graphics.newImage("art/sprites/"
-		.. CHARACTERS[self.character]["file"])
 	self.swordType = "normal"
+end
+
+
+function Lobbiest:toTable()
+	return {["name"] = self.name, ["character"] = self.character,
+		["swordType"] = self.swordType}
 end
 
 
@@ -534,7 +677,7 @@ function LocalLobbiest:initialize(lobby, name, keymap)
 end
 
 
-function LocalLobbiest:keypressed(key, playerNo)
+function LocalLobbiest:keypressed(key, lobby)
 	if (key == self.keymap["accel"]) then
 		if (self.swordType == "normal")		then self.swordType = "knife"
 		elseif (self.swordType == "knife")	then self.swordType = "normal"
@@ -544,7 +687,7 @@ function LocalLobbiest:keypressed(key, playerNo)
 		local textBox = TextBox:new(20, 400, 3, 10, self.name, "Name: ",
 			function (text)
 				self.name = text
-				self.lobby:install()
+				lobby:install()
 			end)
 
 		textBox:install(false, drawFunction, nil, false)
@@ -555,16 +698,43 @@ function LocalLobbiest:keypressed(key, playerNo)
 		else
 			self.character = self.character + 1
 		end
-		self.sprite = love.graphics.newImage("art/sprites/"
-			.. CHARACTERS[self.character]["file"])
 	end
+end
+
+
+function LocalLobbiest:toTable()
+	local tablo = Lobbiest.toTable(self)
+	tablo["keymap"] = self.keymap
+	return tablo
+end
+
+
+-- CLIENT LOBBIEST used by HostLobby
+----------------------------------------
+ClientLobbiest = class("ClientLobbiest", Lobbiest)
+
+function ClientLobbiest:initialize(lobby, client, lobbiestTable)
+	self.client = client
+
+	self.name = lobbiestTable["name"]
+	self.keymap = lobbiestTable["keymap"]
+	self.swordType = lobbiestTable["swordType"]
+	self.character = lobbiestTable["character"]
+end
+
+
+-- HOST LOBBIEST used by ClientLobby
+----------------------------------------
+HostLobbiest = class("HostLobbiest", Lobbiest)
+
+function HostLobbiest:initialize(lobby)
+	Lobbiest.initialize(self, lobby)
 end
 
 
 -- MENU	used for creating menus (lol)
 ----------------------------------------
 Menu = class("Menu")
-
 function Menu:initialize(x, y, offset_x, offset_y, scale, menuItems)
 	self.x,self.y = x,y
 	self.offset_x,self.offset_y = offset_x,offset_y
@@ -706,18 +876,11 @@ end
 
 -- UTIL
 --------------------------------------------------------------------------------
-function split(inputString, seperator)
-        local newString = {}
-        for stringBit in string.gmatch(inputString, "([^"..seperator.."]+)") do
-                table.insert(newString, stringBit)
-        end
-        return newString
-end
-
-
 -- Install the important 'hook' functions (draw, update, keypressed/released)
 -- If any of the 'old' functions passed are not nil, then both the new and
 -- old will be added into the new corresponding hook function
+-- This function is too god damn long and it makes me want to cry
+-- Could be pretty easily shortened, now that I think about it
 function hookInstall(newUpdate, newDraw, newPress, newRelease,
 		oldUpdate, oldDraw, oldPress, oldRelease)
 	local ignored = 1
@@ -757,9 +920,12 @@ end
 -- CHARACTERS
 ------------------------------------------
 CHARACTERS = {}
-CHARACTERS[1] = {["file"] = "jellyfish-lion.png", ["name"] = "Lion Jellyfish", ["desc"] = "hey, hey. you know whats shocking?", ["author"] = "rapidpunches", ["license"] = "CC-BY-SA 4.0"}
-CHARACTERS[2] = {["file"] = "jellyfish-n.png", "Jellyfish N", "(electricity)", "rapidpunches", "CC-BY-SA 4.0"}
-CHARACTERS[3] = {["file"] = "shark-unicorn.png", "Shark-Unicorn", "A masterpiece", "My little bro", "CC-BY-SA 4.0"}
+-- Lion Jellyfish by rapidpunches, CC-BY-SA 4.0
+CHARACTERS[1] = love.graphics.newImage("art/sprites/jellyfish-lion.png")
+-- N Jellyfish by rapidpunches, CC-BY-SA 4.0
+CHARACTERS[2] = love.graphics.newImage("art/sprites/jellyfish-n.png")
+-- Something Indecipherable by my little brother (<3<3), CC-BY-SA 4.0
+CHARACTERS[3] = love.graphics.newImage("art/sprites/shark-unicorn.png")
 
 -- DEFAULT NAMES
 ------------------------------------------
